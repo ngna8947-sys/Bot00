@@ -75,16 +75,16 @@ from PIL import Image, ImageDraw, ImageFont
 # ═══════════════════════════════════════════════════════════
 #  CONFIG  — ដូរតម្លៃទាំងនេះ
 # ═══════════════════════════════════════════════════════════
-BOT_TOKEN          = "8914728102:AAGkoa_RIi2hQmCMr8SzVdxZ7Nv7YgfRcIo"
+BOT_TOKEN          = "8914728102:AAGQUK5BS4E5TIYWpgcLA1xujoLCVE6BK-Q"
 ADMIN_ID           = 8807182741
 
 # Bakong KHQR (ដាក់ Token ពេញលេញពីអ៊ីមែលរបស់អ្នក)
 BAKONG_TOKEN       = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXJjb2pMZm1lYzJNY1GQ2NDAyYiJvJiJvJjkuSWJXi03NDQzNDQzNTIzNzFNaHptNGxDbTYiLCJpc3MiOiJCYWtvbmcifQ.eyJhaGNvdW50X2lkIjoibW9uX3NhbW5hbmdAYmtydCIsImRhdGVfaXNzdWVkIjoiMTc2MzgyOTc1MCIsImV4cGlyZXNfYXQiOjE4MjkyMzg5NTB9"
 BANK_ACCOUNT       = "mon_samnang@bkrt"
-MERCHANT_NAME      = "Khmer SMM"
+MERCHANT_NAME      = "KhmerSMM"
 MERCHANT_CITY      = "Phnom Penh"
 
-DEPOSIT_EXPIRE_SEC = 1200  # 20 នាទី[cite: 1]
+DEPOSIT_EXPIRE_SEC = 300   # 5 នាទី
 POLL_INTERVAL      = 5
 STOCK_ALERT_MIN    = 5
 
@@ -109,6 +109,7 @@ SMM_SVC_FILE    = "aio_smm_services.json"
 SMM_ORD_FILE    = "aio_smm_orders.json"
 SMM_PROFIT_FILE = "aio_smm_profit.json"
 SMM_POLL_FILE   = "aio_smm_poll.json"
+LIVECHAT_FILE   = "aio_livechat.json"     # Live Chat Mapping File
 
 def _load(path, default):
     try:
@@ -134,6 +135,7 @@ orders          = _load(ORDERS_FILE,    {})
 stock           = _load(STOCK_FILE,     {})
 store_deps      = _load(STORE_DEP_FILE, {})
 seen_txn        = set(_load(SEEN_TXN_FILE, []))
+livechat_sessions = _load(LIVECHAT_FILE, {}) # admin_msg_id -> user_uid
 
 smm_api         = _load(SMM_API_FILE,   {"url": "", "key": ""})
 smm_services    = _load(SMM_SVC_FILE,   {})
@@ -143,6 +145,7 @@ smm_poll        = _load(SMM_POLL_FILE,  {"interval": POLL_INTERVAL})
 
 waiting         = {}   # uid -> step/dict
 lang_cooldown   = {}
+livechat_users  = set() # uid set of users currently in live chat mode
 
 # Default products including Mobile Legends, Free Fire KH/SG, Roblox, and PUBG Mobile
 if not products:
@@ -251,10 +254,10 @@ STRINGS = {
             "4️⃣ ចុច <b>📊 សេវាកម្ម SMM</b> → Platform → សេវា → ចំនួន → ផ្ញើ Link[cite: 1]"
         ),
         "support_msg": (
-            "💬 <b>ជំនួយ</b>\n"
+            "💬 <b>Live Chat (ជជែកផ្ទាល់ជាមួយ Admin)</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "📞 Admin: https://t.me/KhmerSMM007\n"
-            "🌐 Channel: "
+            "💬 សូមផ្ញើសារ ឬបញ្ហាដែលអ្នកចង់សួរមកទីនេះបាន Admin នឹងតបតទៅវិញក្នុងពេលឆាប់ៗនេះ!\n"
+            "👇 (ដើម្បីចាកចេញ សូមចុចប៊ូតុង Menu ខាងក្រោម)"
         ),
         "fallback": "❓ ប្រើ Menu ខាងក្រោម",
     },
@@ -294,10 +297,10 @@ STRINGS = {
             "4️⃣ Tap <b>📊 SMM Services</b> → Platform → Service → Qty → Send Link[cite: 1]"
         ),
         "support_msg": (
-            "💬 <b>Support</b>\n"
+            "💬 <b>Live Chat with Admin</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "📞 Admin: @KhmerSmm099\n"
-            "🌐 Channel: @KhmerSmm099"
+            "💬 Please send your message or question here, and an admin will reply to you shortly!\n"
+            "👇 (To exit, click the Menu button below)"
         ),
         "fallback": "❓ Use the menu below",
     },
@@ -802,7 +805,7 @@ def _send_deposit_qr(uid, amount, promo_code=None, label="💳 ដាក់ប�
     cap = (f"{label}\n"
            f"━━━━━━━━━━━━━━━━━━\n"
            f"💰 ចំនួន: <b>${final_amount:.2f}</b>\n"
-           f"⏱ រាប់ថយក្រោយ: <b>20:00 នាទី</b>\n"
+           f"⏱ រាប់ថយក្រោយ: <b>05:00 នាទី</b>\n"
            f"━━━━━━━━━━━━━━━━━━\n"
            f"📱 <b>Bakong KHQR សម្រាប់ទូទាត់</b>")
     
@@ -974,6 +977,7 @@ def is_banned(uid):
 def cmd_start(message):
     uid = message.chat.id
     waiting.pop(uid, None)
+    livechat_users.discard(uid)
     _track_user(message)
     if is_banned(uid):
         bot.send_message(uid, t(uid, "banned")); return
@@ -1781,6 +1785,7 @@ def cb_back(call):
     bot.answer_callback_query(call.id)
     dest = call.data[5:]
     waiting.pop(uid, None)
+    livechat_users.discard(uid)
     if dest == "main":
         _show_welcome(uid)
     elif dest == "shop":
@@ -1896,8 +1901,54 @@ def handle(message):
 
     if text in ("✕ Cancel", "❌ Cancel", "❌ បោះបង់"):
         waiting.pop(uid, None)
+        livechat_users.discard(uid)
         kb = admin_kb() if uid == ADMIN_ID else main_kb(uid)
         bot.send_message(uid, t(uid, "cancel_ok"), reply_markup=kb); return
+
+    # ══════════════════════════════════════════════════════
+    #  LIVE CHAT: ADMIN REPLY (Replying to user messages)
+    # ══════════════════════════════════════════════════════
+    if uid == ADMIN_ID and message.reply_to_message:
+        replied_id = message.reply_to_message.message_id
+        target_uid = livechat_sessions.get(str(replied_id))
+        if target_uid:
+            try:
+                bot.copy_message(chat_id=int(target_uid), from_chat_id=ADMIN_ID, message_id=message.message_id)
+                bot.message_reaction(ADMIN_ID, message.message_id, reaction=[{"type": "emoji", "emoji": "👍"}])
+            except Exception as e:
+                bot.send_message(ADMIN_ID, f"❌ បញ្ជូនសារមិនទាន់បានទេ: {e}")
+            return
+
+    # ══════════════════════════════════════════════════════
+    #  LIVE CHAT: USER SENDING MESSAGE TO ADMIN
+    # ══════════════════════════════════════════════════════
+    if uid in livechat_users and uid != ADMIN_ID:
+        if text in ("🏠 ត្រឡប់ Menu ដើម", "🏠 Back to Menu", "🏠 Menu"):
+            livechat_users.discard(uid)
+            _show_welcome(uid)
+            return
+        
+        try:
+            user_info = users_db.get(uid_str, {})
+            name = user_info.get("name", "User")
+            username = f"@{user_info['username']}" if user_info.get("username") else "No Username"
+            
+            header = f"💬 <b>Live Chat Message</b>\n👤 <b>{name}</b> ({username})\n🆔 <code>{uid}</code>\n━━━━━━━━━━━━━━━━━━\n"
+            
+            # Forward or copy message to admin with reply ability mapping
+            if message.content_type == "text":
+                sent_admin_msg = bot.send_message(ADMIN_ID, header + message.text, parse_mode="HTML")
+            else:
+                bot.send_message(ADMIN_ID, header, parse_mode="HTML")
+                sent_admin_msg = bot.copy_message(chat_id=ADMIN_ID, from_chat_id=uid, message_id=message.message_id)
+            
+            livechat_sessions[str(sent_admin_msg.message_id)] = uid_str
+            _save(LIVECHAT_FILE, livechat_sessions)
+            
+            bot.message_reaction(uid, message.message_id, reaction=[{"type": "emoji", "emoji": "✍️"}])
+        except Exception as e:
+            logger.error(f"{CLR_RED}LiveChat error: {e}{CLR_RESET}")
+        return
 
     # ══════════════════════════════════════════════════════
     #  ADMIN SECTION
@@ -2766,17 +2817,20 @@ def handle(message):
         return
 
     if text in ("🛍️ Shop", "🛍️ ហាងឌីជីថល", "🛍️ ហាង"):
+        livechat_users.discard(uid)
         bot.send_message(uid,
             "🛍️ <b>ហាងឌីជីថល</b>\n━━━━━━━━━━━━━━━━━━",
             parse_mode="HTML", reply_markup=products_kb()); return
 
     if text in ("💎 ថុបអាប់ហ្គេម", "💎 Game Top Up"):
+        livechat_users.discard(uid)
         bot.send_message(uid,
             "💎 <b>ថុបអាប់ហ្គេមទាំងអស់</b>\n━━━━━━━━━━━━━━━━━━\nជ្រើសរើសហ្គេមដែលអ្នកចង់ថុបអាប់៖",
             parse_mode="HTML", reply_markup=game_menu_kb())
         return
 
     if text in ("📊 SMM Services", "📊 សេវាកម្ម SMM", "📊 សេវា SMM"):
+        livechat_users.discard(uid)
         if not smm_services:
             bot.send_message(uid,
                 "❌ គ្មាន SMM Service ទេ\n(Admin ចូល ⚙️ កំណត់ SMM API ដើម្បី import)",
@@ -2787,6 +2841,7 @@ def handle(message):
             parse_mode="HTML", reply_markup=smm_cat_kb()); return
 
     if text in ("💳 ដាក់ប្រាក់", "💰 ដាក់ប្រាក់", "💰 Top Up", "💳 Top Up", "💸 បញ្ចូលលុយ"):
+        livechat_users.discard(uid)
         b = bal(uid)
         waiting.pop(uid, None)
         bot.send_message(uid,
@@ -2799,6 +2854,7 @@ def handle(message):
             reply_markup=deposit_amt_kb(uid)); return
 
     if text in ("📦 បញ្ជាទិញ", "📦 ការបញ្ជាទិញ", "📦 Orders"):
+        livechat_users.discard(uid)
         my_orders = {oid: o for oid, o in {**orders, **smm_orders}.items() if o.get("uid") == uid_str}
         if not my_orders:
             bot.send_message(uid,
@@ -2813,9 +2869,11 @@ def handle(message):
         bot.send_message(uid, "\n".join(lines), parse_mode="HTML", reply_markup=main_kb(uid)); return
 
     if text in ("💬 ជំនួយ Support", "💬 Support"):
+        livechat_users.add(uid)
         bot.send_message(uid, t(uid, "support_msg"), parse_mode="HTML", reply_markup=main_kb(uid)); return
 
     if text in ("👜 កាបូបលុយ", "👜 Wallet"):
+        livechat_users.discard(uid)
         b = bal(uid)
         my_deps = [(k, v) for k, v in store_deps.items()
                    if v.get("uid") == uid_str]
@@ -2832,6 +2890,7 @@ def handle(message):
             parse_mode="HTML", reply_markup=main_kb(uid)); return
 
     if text in ("📜 ប្រវត្តិ", "📋 ប្រវត្តិ", "📜 History", "📋 History"):
+        livechat_users.discard(uid)
         my_orders = {oid: o for oid, o in {**orders, **smm_orders}.items()
                      if o.get("uid") == uid_str}
         if not my_orders:
@@ -2848,9 +2907,11 @@ def handle(message):
         bot.send_message(uid, "\n".join(lines)[:4000], parse_mode="HTML", reply_markup=main_kb(uid)); return
 
     if text in ("💡 របៀបប្រើប្រាស់", "💡 How to Use", "💡 របៀបប្រើ"):
+        livechat_users.discard(uid)
         bot.send_message(uid, t(uid, "how_to_use"), parse_mode="HTML", reply_markup=main_kb(uid)); return
 
     if text in ("🌐 ភូមិភាសា / Language", "🌐 ភាសា / Language", "🌐 Language"):
+        livechat_users.discard(uid)
         bot.send_message(uid, t(uid, "select_lang"),
                          parse_mode="HTML", reply_markup=lang_select_kb()); return
 
@@ -2952,7 +3013,7 @@ def broadcast_web():
     data = flask_request.get_json(silent=True) or {}
     text = data.get("text", "").strip()
     if not text:
-        return jsonify({"error": "No text provided"}}, 400
+        return jsonify({"error": "No text provided"}), 400
     sent = failed = 0
     for u_id in list(users_db.keys()):
         try:
